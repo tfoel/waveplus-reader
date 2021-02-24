@@ -26,22 +26,22 @@
 # Module import dependencies
 # ===============================
 
+from influxdb import InfluxDBClient
 from bluepy.btle import UUID, Peripheral, Scanner, DefaultDelegate
 import sys
 import time
 import struct
-import tableprint
+import datetime
+import arrow
 
 # ===============================
 # Script guards for correct usage
 # ===============================
 
-if len(sys.argv) < 3:
-    print "ERROR: Missing input argument SN or SAMPLE-PERIOD."
-    print "USAGE: read_waveplus.py SN SAMPLE-PERIOD [pipe > yourfile.txt]"
+if len(sys.argv) < 2:
+    print "ERROR: Missing input argument SN"
+    print "USAGE: read_waveplus.py SN"
     print "    where SN is the 10-digit serial number found under the magnetic backplate of your Wave Plus."
-    print "    where SAMPLE-PERIOD is the time in seconds between reading the current values."
-    print "    where [pipe > yourfile.txt] is optional and specifies that you want to pipe your results to yourfile.txt."
     sys.exit(1)
 
 if sys.argv[1].isdigit() is not True or len(sys.argv[1]) != 10:
@@ -52,29 +52,7 @@ if sys.argv[1].isdigit() is not True or len(sys.argv[1]) != 10:
     print "    where [pipe > yourfile.txt] is optional and specifies that you want to pipe your results to yourfile.txt."
     sys.exit(1)
 
-if sys.argv[2].isdigit() is not True or int(sys.argv[2])<0:
-    print "ERROR: Invalid SAMPLE-PERIOD. Must be a numerical value larger than zero."
-    print "USAGE: read_waveplus.py SN SAMPLE-PERIOD [pipe > yourfile.txt]"
-    print "    where SN is the 10-digit serial number found under the magnetic backplate of your Wave Plus."
-    print "    where SAMPLE-PERIOD is the time in seconds between reading the current values."
-    print "    where [pipe > yourfile.txt] is optional and specifies that you want to pipe your results to yourfile.txt."
-    sys.exit(1)
-
-if len(sys.argv) > 3:
-    Mode = sys.argv[3].lower()
-else:
-    Mode = 'terminal' # (default) print to terminal 
-
-if Mode!='pipe' and Mode!='terminal':
-    print "ERROR: Invalid piping method."
-    print "USAGE: read_waveplus.py SN SAMPLE-PERIOD [pipe > yourfile.txt]"
-    print "    where SN is the 10-digit serial number found under the magnetic backplate of your Wave Plus."
-    print "    where SAMPLE-PERIOD is the time in seconds between reading the current values."
-    print "    where [pipe > yourfile.txt] is optional and specifies that you want to pipe your results to yourfile.txt."
-    sys.exit(1)
-
 SerialNumber = int(sys.argv[1])
-SamplePeriod = int(sys.argv[2])
 
 # ====================================
 # Utility functions for WavePlus class
@@ -204,45 +182,102 @@ try:
     #---- Initialize ----#
     waveplus = WavePlus(SerialNumber)
     
-    if (Mode=='terminal'):
-        print "\nPress ctrl+C to exit program\n"
-    
     print "Device serial number: %s" %(SerialNumber)
     
     header = ['Humidity', 'Radon ST avg', 'Radon LT avg', 'Temperature', 'Pressure', 'CO2 level', 'VOC level']
     
-    if (Mode=='terminal'):
-        print tableprint.header(header, width=12)
-    elif (Mode=='pipe'):
-        print header
-        
-    while True:
-        
-        waveplus.connect()
-        
-        # read values
-        sensors = waveplus.read()
-        
-        # extract
-        humidity     = str(sensors.getValue(SENSOR_IDX_HUMIDITY))             + " " + str(sensors.getUnit(SENSOR_IDX_HUMIDITY))
-        radon_st_avg = str(sensors.getValue(SENSOR_IDX_RADON_SHORT_TERM_AVG)) + " " + str(sensors.getUnit(SENSOR_IDX_RADON_SHORT_TERM_AVG))
-        radon_lt_avg = str(sensors.getValue(SENSOR_IDX_RADON_LONG_TERM_AVG))  + " " + str(sensors.getUnit(SENSOR_IDX_RADON_LONG_TERM_AVG))
-        temperature  = str(sensors.getValue(SENSOR_IDX_TEMPERATURE))          + " " + str(sensors.getUnit(SENSOR_IDX_TEMPERATURE))
-        pressure     = str(sensors.getValue(SENSOR_IDX_REL_ATM_PRESSURE))     + " " + str(sensors.getUnit(SENSOR_IDX_REL_ATM_PRESSURE))
-        CO2_lvl      = str(sensors.getValue(SENSOR_IDX_CO2_LVL))              + " " + str(sensors.getUnit(SENSOR_IDX_CO2_LVL))
-        VOC_lvl      = str(sensors.getValue(SENSOR_IDX_VOC_LVL))              + " " + str(sensors.getUnit(SENSOR_IDX_VOC_LVL))
-        
-        # Print data
-        data = [humidity, radon_st_avg, radon_lt_avg, temperature, pressure, CO2_lvl, VOC_lvl]
-        
-        if (Mode=='terminal'):
-            print tableprint.row(data, width=12)
-        elif (Mode=='pipe'):
-            print data
-        
-        waveplus.disconnect()
-        
-        time.sleep(SamplePeriod)
-            
+    waveplus.connect()
+    
+    # read values
+    sensors = waveplus.read()
+    
+    # extract
+    humidity     = str(sensors.getValue(SENSOR_IDX_HUMIDITY))             + " " + str(sensors.getUnit(SENSOR_IDX_HUMIDITY))
+    radon_st_avg = str(sensors.getValue(SENSOR_IDX_RADON_SHORT_TERM_AVG)) + " " + str(sensors.getUnit(SENSOR_IDX_RADON_SHORT_TERM_AVG))
+    radon_lt_avg = str(sensors.getValue(SENSOR_IDX_RADON_LONG_TERM_AVG))  + " " + str(sensors.getUnit(SENSOR_IDX_RADON_LONG_TERM_AVG))
+    temperature  = str(sensors.getValue(SENSOR_IDX_TEMPERATURE))          + " " + str(sensors.getUnit(SENSOR_IDX_TEMPERATURE))
+    pressure     = str(sensors.getValue(SENSOR_IDX_REL_ATM_PRESSURE))     + " " + str(sensors.getUnit(SENSOR_IDX_REL_ATM_PRESSURE))
+    CO2_lvl      = str(sensors.getValue(SENSOR_IDX_CO2_LVL))              + " " + str(sensors.getUnit(SENSOR_IDX_CO2_LVL))
+    VOC_lvl      = str(sensors.getValue(SENSOR_IDX_VOC_LVL))              + " " + str(sensors.getUnit(SENSOR_IDX_VOC_LVL))
+    
+    # Write data
+    data = [humidity, radon_st_avg, radon_lt_avg, temperature, pressure, CO2_lvl, VOC_lvl]
+    timestamp = arrow.now().isoformat()
+    json_body = [
+    {
+        "measurement": "humidity",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_HUMIDITY)
+        }
+    },
+    {
+        "measurement": "temperature",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_TEMPERATURE)
+        }
+    },
+    {
+        "measurement": "pressure",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_REL_ATM_PRESSURE)
+        }
+    },
+    {
+        "measurement": "co2",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_CO2_LVL)
+        }
+    },
+    {
+        "measurement": "voc",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_VOC_LVL)
+        }
+    },
+    {
+        "measurement": "radon_short_term",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_RADON_SHORT_TERM_AVG)
+        }
+    },
+    {
+        "measurement": "radon_long_term",
+        "tags": {
+            "device": SerialNumber
+        },
+        "time": timestamp,
+        "fields": {
+            "value": sensors.getValue(SENSOR_IDX_RADON_LONG_TERM_AVG)
+        }
+    }
+    ]
+
+    # yes, the connection parameters should be injected instead of being hardcoded...
+    client = InfluxDBClient('an ip address', 8086, 'a username', 'a password', 'airthings')
+    client.write_points(json_body)
 finally:
     waveplus.disconnect()

@@ -1,3 +1,5 @@
+Old README - not updated for InfluxDB
+
 # Airthings Wave Plus Sensor Reader
 
 This is a project to provide users an interface (```read_waveplus.py```) to read current sensor values from the
